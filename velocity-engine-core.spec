@@ -6,6 +6,9 @@ Group:		Development/Java
 License:	ASL 2.0
 URL:		https://velocity.apache.org/engine/
 Source0:	https://github.com/apache/velocity-engine/archive/refs/tags/%{version}.tar.gz#/velocity-engine-%{version}.tar.gz
+# JavaCC output is not in the tag. This jar is source, and only the
+# generated parser classes are copied out of it.
+Source1:	https://repo1.maven.org/maven2/org/apache/velocity/velocity-engine-core/%{version}/velocity-engine-core-%{version}-sources.jar
 BuildArch:	noarch
 BuildRequires:	python
 # Literal, so the first rpmbuild -bs records them before sysjar is installed.
@@ -17,9 +20,9 @@ BuildSystem:	maven
 BuildOption(install):	--file-name %{name}
 
 %description
-Template engine used by the Maven site renderer. The parser sources are
-already generated in the tag. VelocityEngineVersion is filled in during
-prep, so the build does not run the templating plugin.
+Template engine used by the Maven site renderer. The JavaCC parser
+classes are copied from the sources jar. VelocityEngineVersion is filled
+in during prep, so the build does not run the templating plugin.
 
 %prep
 %autosetup -n velocity-engine-%{version}
@@ -28,6 +31,29 @@ prep, so the build does not run the templating plugin.
 rm -rf src
 mv velocity-engine-core/src src
 mv velocity-engine-core/pom.xml pom.xml
+# The tag ships the hand-written nodes and omits the JavaCC output.
+python - %{SOURCE1} <<'PY'
+import sys
+import zipfile
+from pathlib import Path
+keep = {
+    "org/apache/velocity/runtime/parser/StandardParser.java",
+    "org/apache/velocity/runtime/parser/StandardParserConstants.java",
+    "org/apache/velocity/runtime/parser/StandardParserTokenManager.java",
+    "org/apache/velocity/runtime/parser/Token.java",
+    "org/apache/velocity/runtime/parser/TokenMgrError.java",
+    "org/apache/velocity/runtime/parser/node/JJTStandardParserState.java",
+    "org/apache/velocity/runtime/parser/node/StandardParserDefaultVisitor.java",
+    "org/apache/velocity/runtime/parser/node/StandardParserTreeConstants.java",
+    "org/apache/velocity/runtime/parser/node/StandardParserVisitor.java",
+}
+root = Path("src/main/java")
+with zipfile.ZipFile(sys.argv[1]) as jar:
+    for name in keep:
+        dest = root / name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(jar.read(name))
+PY
 python - <<PY
 import xml.etree.ElementTree as ET
 NS = "http://maven.apache.org/POM/4.0.0"
